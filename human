@@ -4,9 +4,10 @@ from machine import Pin, PWM
 import time
 import neopixel
 
+#----------------- BLUETOOTH FUNCTIONS -----------------------
+# largely unchanged from the example code
+async def central(): # Central listens - human function
 
-# Central listens - human function
-async def central():
     c = Sniff('!', verbose = True)
     c.scan(0)   # 0ms = scans forever 
     for i in range(100):
@@ -16,14 +17,14 @@ async def central():
             print('Got: ' + latest)
         await asyncio.sleep(0.1)
 
-# Peripheral yells - zombie function
-async def peripheral():    
+async def peripheral(): # Peripheral yells - zombie function
     p = Yell()
     for i in range(100):
         p.advertise(f'!2{i}')
         await asynctio.sleep(0.1)
     p.stop_advertising()
 
+# ----------------- PIN ASSIGNMENTS ------------------------------
 # defining pins that we'll be needing...
 # want 3 indicator lights, buzzer, neopixel to indiciate state
 buzzer = PWM(Pin('GPIO18', Pin.OUT))  # buzzer
@@ -35,16 +36,30 @@ thirdHit = Pin('GPIO2', Pin.OUT)
 # Thinking through the architecture for a human:
     # A human listens for a zombie yelling
     # when a zombie enters range, call function
+
+# ----------------- TRACKING/FLAG VARS ------------------------------
 hit_list = [0] * 13 # List to track our hits
-print(hit_list)
+in_range = [0] * 13 # allows us to track who is actively in our radius
 isHuman = True # will turn false when get 3 hits from the same number
 killedBy = -1 # setting this variable to -1 so that we never mis-read. 
 
+# ----------------- HELPER FUNCTIONS ------------------------------
+
 # upon zombie entering range, want to check how long they're there
 async def readHit(num):
+    # wait 3 seconds
+
+# function for being a zombie :)
+async def zombieMode():
     
+# ----------------- MAIN CODE ------------------------------
 
 # The human loop runs until a call to read_hit breaks the loop
+state = (0,0,10)  # Human = blue
+neo[0] = state
+neo.write()
 while isHuman:
     central()
         # if zombie in range, call readHit(zombie number)
+# after getting kicked out of while loop, run in zombie mode
+zombieMode()
