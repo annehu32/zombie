@@ -4,38 +4,14 @@ from machine import Pin, PWM
 import time
 import neopixel
 
-#----------------- BLUETOOTH FUNCTIONS -----------------------
-# largely unchanged from the example code
-async def central(): # Central listens - human function
-
-    c = Sniff('!', verbose = True)
-    c.scan(0)   # 0ms = scans forever 
-    for i in range(100):
-        latest = c.last
-        if latest:
-            c.last='' # clear the flag for the next advertisement
-            print('Got: ' + latest)
-        await asyncio.sleep(0.1)
-
-async def peripheral(): # Peripheral yells - zombie function
-    p = Yell()
-    for i in range(100):
-        p.advertise(f'!2{i}')
-        await asynctio.sleep(0.1)
-    p.stop_advertising()
-
 # ----------------- PIN ASSIGNMENTS ------------------------------
 # defining pins that we'll be needing...
 # want 3 indicator lights, buzzer, neopixel to indiciate state
 buzzer = PWM(Pin('GPIO18', Pin.OUT))  # buzzer
 neo = neopixel.NeoPixel(Pin(28), 1)   # neopixel
-firstHit = Pin('GPIO0', Pin.OUT)
-secondHit = Pin('GPIO1', Pin.OUT)
-thirdHit = Pin('GPIO2', Pin.OUT)
-
-# Thinking through the architecture for a human:
-    # A human listens for a zombie yelling
-    # when a zombie enters range, call function
+firstHit = Pin('GPIO1', Pin.OUT)
+secondHit = Pin('GPIO5', Pin.OUT)
+thirdHit = Pin('GPIO9', Pin.OUT)
 
 # ----------------- TRACKING/FLAG VARS ------------------------------
 hit_list = [0] * 13 # List to track our hits
@@ -45,21 +21,51 @@ killedBy = -1 # setting this variable to -1 so that we never mis-read.
 
 # ----------------- HELPER FUNCTIONS ------------------------------
 
-# upon zombie entering range, want to check how long they're there
-async def readHit(num):
+# # upon zombie entering range, want to check how long they're there
+#async def readHit(num):
     # wait 3 seconds
-
-# function for being a zombie :)
-async def zombieMode():
     
-# ----------------- MAIN CODE ------------------------------
 
-# The human loop runs until a call to read_hit breaks the loop
-state = (0,0,10)  # Human = blue
-neo[0] = state
-neo.write()
-while isHuman:
-    central()
-        # if zombie in range, call readHit(zombie number)
-# after getting kicked out of while loop, run in zombie mode
-zombieMode()
+# Thinking through the architecture for a human:
+    # A human listens for a zombie yelling
+    # when a zombie enters range, call function
+
+#----------------- BLUETOOTH FUNCTIONS -----------------------
+# largely unchanged from the example code
+async def human(): # Central listens - human function
+    state = (0,0,10)  # Human = blue
+    neo[0] = state
+    neo.write()
+    c = Sniff('!', verbose = True)
+    c.scan(0)   # 0ms = scans forever 
+    for i in range(10):
+        print('in human loop')
+        latest = c.last
+        if latest:
+            c.last='' # clear the flag for the next advertisement
+            print('Got: ' + latest)
+        await asyncio.sleep(0.1)
+    c.stop_scan()
+    
+
+async def zombie(): # Peripheral yells - zombie function
+    state = (0,10,0)  # Zombie = green
+    neo[0] = state
+    neo.write()
+    p = Yell()
+    while True:    # Zombie will yell and yell and yell
+        p.advertise(f'!{killedBy}')
+        print('in zombie loop')
+        await asyncio.sleep(0.1)
+
+# ----------------- MAIN CODE ------------------------------
+# Main function will run sequentially
+async def main():   
+    await human()
+    await zombie()
+
+# Setting up the asyncio event loop
+loop = asyncio.get_event_loop()
+print('loop created')
+loop.run_until_complete(main())
+loop.close()
