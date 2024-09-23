@@ -125,24 +125,6 @@ async def human(): # Central listens - human function
         c.stop_scan()
     finally:
         machine.reset()
-# async def human(): # Central listens - human function
-#     state = (0,0,10)  # Human = blue
-#     neo[0] = state
-#     neo.write()
-#     c = Sniff('!', verbose = True)
-#     c.scan(0)
-#    # 0ms = scans forever 
-#     while isHuman:
-#         if c.getRSSI > -100:
-#             asyncio.create_task(read_Hit())
-    # this for loop is here for testing purposes. should eventually be a while isHuman type of situation
-#     for i in range(10): 
-#         print('in human loop')
-#         latest = c.last
-#         if latest:
-#             c.last='' # clear the flag for the next advertisement
-#             print('Got: ' + latest)
-#         await asyncio.sleep(0.1)    
 
 async def zombie(): # Peripheral yells - zombie function
     state = (0,10,0)  # Zombie = green
