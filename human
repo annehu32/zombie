@@ -11,6 +11,7 @@ from mqtt import MQTTClient
 #ssid = 'Tufts_Robot'
 #password = ''
 
+
 mqtt_broker = 'broker.hivemq.com'
 port = 1883
 topic_sub = 'ME35-24/shorties'
@@ -106,7 +107,7 @@ async def read_hit():
             hit_list[val-1] += 1
             print(hit_list)
             await asyncio.sleep_ms(10)
-        if hit_list[val-1] >= 3:
+        if hit_list[val-1] >= 3 and not (val == 2): # preventing ourselves from tagging ourselves
             killedBy = val
             print('Got zombied by: ' + str(val))
             send_message('zombied by : '+ str(val))
