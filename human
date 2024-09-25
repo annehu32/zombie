@@ -4,73 +4,117 @@ from machine import Pin, PWM
 import time
 import neopixel
 
-# if zombie, buzzer is going
-# need a button to be able to turn the buzzer off
-# can choose two different ways of reading hits: every 3 seconds, or have to leave the range and come back
-# make sure the range is changeable
-# need to have a way to write out the hit array to mqtt out when zombified
 
+# ------------------------ MQTT THINGS ---------------------------
+import network
+from mqtt import MQTTClient
+#ssid = 'Tufts_Robot'
+#password = ''
+
+mqtt_broker = 'broker.hivemq.com'
+port = 1883
+topic_sub = 'ME35-24/shorties'
+
+def connect_wifi():
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    wlan.connect(ssid, password)
+    while not wlan.isconnected():
+        time.sleep(1)
+
+def send_message(msg):
+    print('PUBLISHING TO SHORTIES')
+    if mqtt_pub_client is None:
+        mqtt_pub_client = MQTTClient('ME35_chris_pub',mqtt_broker, port, keepalive=60)
+        mqtt_pub_client.connect()
+    mqtt_pub_client.publish(topic_pub,msg)
+    print(f"Message'{msg}' sent to topic '{topic_pub}'")
+    await time.sleep(0.1)
+    mqtt_pub_client.disconnect()
+    mqtt_pub_client = None
 
 # ----------------- PIN ASSIGNMENTS ------------------------------
 # defining pins that we'll be needing...
-# want 3 indicator lights, buzzer, neopixel to indiciate state
+# want 3 indicator lights, buzzer, neopixel to indicate state
 buzzer = PWM(Pin('GPIO18', Pin.OUT))  # buzzer
 neo = neopixel.NeoPixel(Pin(28), 1)   # neopixel
-firstHit = Pin('GPIO13', Pin.OUT)
-secondHit = Pin('GPIO14', Pin.OUT)
-thirdHit = Pin('GPIO15', Pin.OUT)
-zombieNear = Pin('GPIO12',Pin.OUT)
+firstHit = Pin('GPIO9', Pin.OUT)
+secondHit = Pin('GPIO5', Pin.OUT)
+thirdHit = Pin('GPIO1', Pin.OUT)
+zombieNear = Pin('GPIO13', Pin.OUT)
+button = Pin('GPIO20', Pin.IN)
 
 # ----------------- TRACKING/FLAG VARS ------------------------------
-hit_list = [0] * 13 # List to track our hits
-in_range = [0] * 13 # allows us to track who is actively in our radius
-isHuman = True # will turn false when get 3 hits from the same number
-killedBy = -1 # setting this variable to -1 so that we never mis-read.
-hitRange = -60
+hit_list = [0] * 13  # List to track our hits
+in_range = [0] * 13  # Allows us to track who is actively in our radius
+isHuman = True  # Will turn false when getting 3 hits from the same number
+killedBy = -1  # Setting this variable to -1 so that we never mis-read
+hitRange = -60  # Adjustable range
+yell = True
 
 
 # ----------------- HELPER FUNCTIONS ------------------------------
 
-# buzzer beeps and green light goes off
-async def alert():
+# Buzzer beeps and green light goes off
+async def alert(val):
     global buzzer
-    zombieNear.on() #kinda problematic because doesn't actively track if zombie is near...
-    await asyncio.sleep(1)
-    zombieNear.off()
+    global firstHit
+    global secondHit
+    global thirdHit
+    global zombieNear
+    global hit_list
+    
+    zombieNear.on()
+
     buzzer.freq(440)
     buzzer.duty_u16(1000)
     await asyncio.sleep(0.3)
     buzzer.duty_u16(0)
+    
+    if hit_list[val -1] == 1:
+        firstHit.on()
+    elif hit_list[val-1] == 2:
+        secondHit.on()
+    await asyncio.sleep(3)
+    zombieNear.off()
+    firstHit.off()
+    secondHit.off()
+    
+    
 
-# # upon zombie entering range, want to check how long they're there
-#async def readHit(num):
-    # wait 3 seconds
-c = Sniff('!', verbose = True)
+# Upon zombie entering range, check how long they're there
+c = Sniff('!', verbose=True)
+
 async def read_hit():
     global c
     global in_range
     global isHuman
     global hit_list
     global killedBy
-    
+
     latest = c.last
-    val = int(latest[1])
-    print('in read hit: '+ latest)
-    asyncio.run(alert()) #alerts the human that zombie has entered range
-    
-    # wait 3 second and re-check for zombie
-    asyncio.sleep(3)
-    if latest and in_range[val-1] == 1:
-        c.last='' # clear the flag for the next advertisement
-        print(val)
-        hit_list[val-1] += 1
-        await asyncio.sleep_ms(10)
-    if hit_list[val-1] >= 3:
-        killedBy = val
-        print('Got hit by: ' + val)
-        isHuman = False
-        await asyncio.sleep_ms(10)
-        
+    if latest and len(latest) > 1:  # Ensure latest and latest[1] exist
+        val = int(latest[1])
+        print('in read hit: ' + str(latest[1]))
+        await alert()  # Alerts the human that zombie has entered range
+
+        # Wait 3 seconds and re-check for zombie
+        await asyncio.sleep(3)
+        if in_range[val-1] == 1:  # Check if still in range
+            c.last = ''  # Clear the flag for the next advertisement
+            print('additional hit by ' + str(val))
+            hit_list[val-1] += 1
+            print(hit_list)
+            await asyncio.sleep_ms(10)
+        if hit_list[val-1] >= 3:
+            killedBy = val
+            print('Got zombied by: ' + str(val))
+            send_message('zombied by : '+ str(val))
+            isHuman = False  # Transition to zombie state
+            await asyncio.sleep_ms(10)
+    else:
+        print("No valid latest data found")
+
 
 def testLEDs():
     firstHit.on()
@@ -86,65 +130,104 @@ def testLEDs():
     thirdHit.off()
     zombieNear.off()
         
+
 #----------------- BLUETOOTH FUNCTIONS -----------------------
-# largely unchanged from the example code
 
 def inRange(num):
-    in_range[num-1]=1
+    in_range[num-1] = 1
 
 def outRange(num):
-    in_range[num-1]=0
-    
-async def human(): # Central listens - human function
+    in_range[num-1] = 0
+
+async def human():  # Central listens - human function
     global hitRange
-    state = (0,0,10)  # Human = blue
+    state = (0, 0, 10)  # Human = blue
     neo[0] = state
     neo.write()
-    
+
     try:
-        c.scan(0)   # 0ms = scans forever 
+        c.scan(0)  # 0ms = scans forever
         while isHuman:
             latest = c.last
-            if latest:
+            if latest and len(latest) > 1:  # Ensure latest and latest[1] exist
                 dist = c.getRSSI()
-                #print(dist)
                 if dist > hitRange:
-                    print('in range')
+                    print(str(latest[1]) + ' in range')
                     inRange(int(latest[1]))
-                    print(in_range)
-                    asyncio.run(read_hit()) # call to read_hit function
-                    
-                if dist < hitRange:
-                    print('out range')
+                    await read_hit()  # Call to read_hit function
+                elif dist < hitRange:
+                    print(str(latest[1]) + ' out of range')
                     outRange(int(latest[1]))
-                c.last='' # clear the flag for the next advertisement
-                
+                c.last = ''  # Clear the flag for the next advertisement
             await asyncio.sleep(0.1)
         c.stop_scan()
     except Exception as e:
+        print(f"Error in human(): {e}")
         c.stop_scan()
     finally:
-        machine.reset()
+        print("Human function completed, resetting machine.")        
+        
+
+async def toggleButton():
+    global yell
+    if yell:
+        print('----- in button.toggleButton, turning yelling OFF ------')
+        yell = False
+
+    else:
+        print('----- in button.toggleButton, turning yelling ON ------')
+        yell = True
+
+async def readPress():
+    global button
+    print('-----handle_button called -------')
+    while True:
+        if button.value() != 1:
+            time.sleep(0.1)
+            if button.value() != 1:
+                await toggleButton()
+        await asyncio.sleep(0.01)
+
+async def scream():
+    global buzzer
+    global yell
+    
+    if yell:
+        buzzer.freq(440)
+        buzzer.duty_u16(1000)
+        await asyncio.sleep(0.1)
+        buzzer.duty_u16(0)
+
 
 async def zombie(): # Peripheral yells - zombie function
+    global neo
     state = (0,10,0)  # Zombie = green
     neo[0] = state
     neo.write()
     p = Yell()
     while True:    # Zombie will yell and yell and yell
-        p.advertise(f'!{killedBy}')
+        p.advertise(f'!2')
         print('in zombie loop')
+        #await scream()
         await asyncio.sleep(0.1)
 
 # ----------------- MAIN CODE ------------------------------
+
+#client = MQTTClient('ME35_chris', mqtt_broker, port, keepalive=60)
+#client.connect()
+
 # Main function will run sequentially
 async def main():
-    await human()
-    await zombie() # Zombie function will only stop via keyboard interrupt
-                    # maybe we want to add an external button to stop?
+    asyncio.create_task(readPress())
+    human_task = asyncio.create_task(human())  # Create task for human() and run it in parallel
+    while isHuman:
+        await asyncio.sleep(0.1)  # Keep waiting until isHuman becomes False
+
+    human_task.cancel()  # Cancel human task when human state ends (not strictly needed but cleaner)
+    await zombie()  # Start zombie function immediately after human
 
 # Setting up the asyncio event loop
-#testLEDs()
+connect_wifi()
 loop = asyncio.get_event_loop()
 print('loop created')
 loop.run_until_complete(main())
